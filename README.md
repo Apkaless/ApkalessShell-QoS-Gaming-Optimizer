@@ -59,6 +59,8 @@ python QoS.py
 
 - ping3>=4.0.4
 - speedtest-cli>=2.1.3
+- Pillow>=9.0.0
+- colorama>=0.4.4
 
 ## Usage
 
