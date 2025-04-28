@@ -34,8 +34,8 @@ A powerful Windows application for managing Quality of Service (QoS) policies to
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/Apkaless/ApkalessShell-Gaming-Optimizer.git
-cd ApkalessShell-Gaming-Optimizer
+git clone https://github.com/Apkaless/ApkalessShell-QoS-Gaming-Optimizer.git
+cd ApkalessShell-QoS-Gaming-Optimizer
 ```
 
 2. Install required dependencies:
