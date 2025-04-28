@@ -136,7 +136,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Support
 
-For support, please:
-1. Check the troubleshooting section
-2. Open an issue on GitHub
-3. Contact the maintainers
+For support, please contact me on:
+1. Instagram: Apkaless
+2. Telegram: Apkaless
