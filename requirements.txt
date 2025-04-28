@@ -1,0 +1,2 @@
+ping3>=4.0.4
+speedtest-cli>=2.1.3 

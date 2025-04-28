@@ -9,6 +9,11 @@ from colorama import init
 from datetime import datetime
 import sys
 from GamesFinder import Steam, EpicGames
+import random
+import ping3
+import socket
+from statistics import stdev
+import csv
 
 # Initialize colorama
 init(convert=True, autoreset=True)
@@ -182,6 +187,35 @@ class QoSManagerApp:
             troughcolor="#252525",
             borderwidth=0
         )
+        
+        # Add new styles for performance monitoring
+        self.style.configure(
+            "Accent.TButton",
+            background="#00b4d8",
+            foreground="#ffffff",
+            font=("Segoe UI", 10, "bold"),
+            padding=10
+        )
+        
+        self.style.configure(
+            "Stop.TButton",
+            background="#ff5252",
+            foreground="#ffffff",
+            font=("Segoe UI", 10, "bold"),
+            padding=10
+        )
+        
+        self.style.map(
+            "Accent.TButton",
+            background=[("active", "#0096c7")],
+            foreground=[("active", "#ffffff")]
+        )
+        
+        self.style.map(
+            "Stop.TButton",
+            background=[("active", "#ff1744")],
+            foreground=[("active", "#ffffff")]
+        )
 
     def create_header(self):
         """Create the header section of the application"""
@@ -259,10 +293,15 @@ class QoSManagerApp:
         self.notebook.add(self.remove_game_tab, text="Remove Game")
         self.create_remove_game()
         
-        # DSCP Settings tab (NEW)
+        # DSCP Settings tab
         self.dscp_tab = ttk.Frame(self.notebook)
         self.notebook.add(self.dscp_tab, text="DSCP Settings")
         self.create_dscp_settings()
+        
+        # Performance tab (NEW)
+        self.performance_tab = ttk.Frame(self.notebook)
+        self.notebook.add(self.performance_tab, text="Performance")
+        self.create_performance_tab()
         
         # Settings tab
         self.settings_tab = ttk.Frame(self.notebook)
@@ -971,6 +1010,514 @@ class QoSManagerApp:
         )
         bulk_entry.pack(side=tk.LEFT, padx=(0, 10))
         
+    def create_performance_tab(self):
+        """Create the performance monitoring tab"""
+        container = ttk.Frame(self.performance_tab)
+        container.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Header
+        title_label = tk.Label(
+            container,
+            text="Performance Optimization",
+            font=("Segoe UI", 14, "bold"),
+            bg="#1e1e1e",
+            fg="#ffffff"
+        )
+        title_label.pack(anchor="w", pady=(0, 20))
+        
+        # Create notebook for different views
+        self.performance_notebook = ttk.Notebook(container)
+        self.performance_notebook.pack(fill="both", expand=True)
+        
+        # Current Performance tab
+        current_frame = ttk.Frame(self.performance_notebook)
+        self.performance_notebook.add(current_frame, text="Current Performance")
+        self._create_current_performance_frame(current_frame)
+        
+        # Historical Data tab
+        historical_frame = ttk.Frame(self.performance_notebook)
+        self.performance_notebook.add(historical_frame, text="Historical Data")
+        self._create_historical_performance_frame(historical_frame)
+        
+        # Advanced Diagnostics tab
+        diagnostics_frame = ttk.Frame(self.performance_notebook)
+        self.performance_notebook.add(diagnostics_frame, text="Advanced Diagnostics")
+        self._create_diagnostics_frame(diagnostics_frame)
+        
+        # Performance Optimization tab
+        optimization_frame = ttk.Frame(self.performance_notebook)
+        self.performance_notebook.add(optimization_frame, text="Optimization")
+        self._create_optimization_frame(optimization_frame)
+        
+        # Initialize monitoring variables
+        self.monitoring_active = False
+        self.monitoring_thread = None
+        self.performance_history = []
+        self.max_history_points = 100  # Store last 100 measurements
+        self.optimization_active = False
+        self.optimization_thread = None
+
+    def _create_current_performance_frame(self, parent):
+        """Create the current performance monitoring frame"""
+        # Performance metrics frame
+        metrics_frame = tk.Frame(parent, bg="#252525", padx=20, pady=20)
+        metrics_frame.pack(fill="x", pady=(0, 20))
+        
+        metrics_title = tk.Label(
+            metrics_frame,
+            text="Current Network Performance",
+            font=("Segoe UI", 12, "bold"),
+            bg="#252525",
+            fg="#ffffff"
+        )
+        metrics_title.pack(anchor="w", pady=(0, 10))
+        
+        # Create metrics grid
+        metrics_grid = tk.Frame(metrics_frame, bg="#252525")
+        metrics_grid.pack(fill="x")
+        
+        # Latency
+        latency_frame = tk.Frame(metrics_grid, bg="#252525")
+        latency_frame.pack(side=tk.LEFT, padx=(0, 20))
+        
+        latency_label = tk.Label(
+            latency_frame,
+            text="Latency:",
+            bg="#252525",
+            fg="#aaaaaa"
+        )
+        latency_label.pack(anchor="w")
+        
+        self.latency_var = tk.StringVar(value="-- ms")
+        latency_value = tk.Label(
+            latency_frame,
+            textvariable=self.latency_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10, "bold")
+        )
+        latency_value.pack(anchor="w")
+        
+        # Add tooltip for latency
+        self._create_tooltip(latency_frame, "Network latency (ping time) in milliseconds. Lower is better.")
+        
+        # Packet Loss
+        loss_frame = tk.Frame(metrics_grid, bg="#252525")
+        loss_frame.pack(side=tk.LEFT, padx=(0, 20))
+        
+        loss_label = tk.Label(
+            loss_frame,
+            text="Packet Loss:",
+            bg="#252525",
+            fg="#aaaaaa"
+        )
+        loss_label.pack(anchor="w")
+        
+        self.loss_var = tk.StringVar(value="-- %")
+        loss_value = tk.Label(
+            loss_frame,
+            textvariable=self.loss_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10, "bold")
+        )
+        loss_value.pack(anchor="w")
+        
+        # Add tooltip for packet loss
+        self._create_tooltip(loss_frame, "Percentage of packets lost during transmission. Should be close to 0%.")
+        
+        # Jitter
+        jitter_frame = tk.Frame(metrics_grid, bg="#252525")
+        jitter_frame.pack(side=tk.LEFT)
+        
+        jitter_label = tk.Label(
+            jitter_frame,
+            text="Jitter:",
+            bg="#252525",
+            fg="#aaaaaa"
+        )
+        jitter_label.pack(anchor="w")
+        
+        self.jitter_var = tk.StringVar(value="-- ms")
+        jitter_value = tk.Label(
+            jitter_frame,
+            textvariable=self.jitter_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10, "bold")
+        )
+        jitter_value.pack(anchor="w")
+        
+        # Add tooltip for jitter
+        self._create_tooltip(jitter_frame, "Variation in latency. Lower values mean more stable connection.")
+        
+        # Performance impact indicator with color coding
+        impact_frame = tk.Frame(parent, bg="#252525", padx=20, pady=20)
+        impact_frame.pack(fill="x", pady=(0, 20))
+        
+        impact_title = tk.Label(
+            impact_frame,
+            text="QoS Impact",
+            font=("Segoe UI", 12, "bold"),
+            bg="#252525",
+            fg="#ffffff"
+        )
+        impact_title.pack(anchor="w", pady=(0, 10))
+        
+        self.impact_var = tk.StringVar(value="No impact data available")
+        self.impact_label = tk.Label(
+            impact_frame,
+            textvariable=self.impact_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10)
+        )
+        self.impact_label.pack(anchor="w")
+        
+        # Add tooltip for impact
+        self._create_tooltip(impact_frame, "Current impact of network conditions on gaming performance.")
+        
+        # DSCP Recommendations with visual feedback
+        recommendations_frame = tk.Frame(parent, bg="#252525", padx=20, pady=20)
+        recommendations_frame.pack(fill="x")
+        
+        recommendations_title = tk.Label(
+            recommendations_frame,
+            text="DSCP Recommendations",
+            font=("Segoe UI", 12, "bold"),
+            bg="#252525",
+            fg="#ffffff"
+        )
+        recommendations_title.pack(anchor="w", pady=(0, 10))
+        
+        self.recommendations_var = tk.StringVar(value="No recommendations available")
+        recommendations_value = tk.Label(
+            recommendations_frame,
+            textvariable=self.recommendations_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10),
+            wraplength=600,
+            justify=tk.LEFT
+        )
+        recommendations_value.pack(anchor="w")
+        
+        # Start monitoring button
+        monitor_btn = ttk.Button(
+            parent,
+            text="Start Performance Monitoring",
+            command=self.start_performance_monitoring
+        )
+        monitor_btn.pack(pady=(20, 0))
+
+    def _create_historical_performance_frame(self, parent):
+        """Create the historical performance data frame"""
+        # Create canvas and scrollbar for the graph
+        canvas_frame = tk.Frame(parent, bg="#1e1e1e")
+        canvas_frame.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        self.history_canvas = tk.Canvas(
+            canvas_frame,
+            bg="#1e1e1e",
+            highlightthickness=0
+        )
+        self.history_canvas.pack(side=tk.LEFT, fill="both", expand=True)
+        
+        scrollbar = ttk.Scrollbar(
+            canvas_frame,
+            orient="vertical",
+            command=self.history_canvas.yview
+        )
+        scrollbar.pack(side=tk.RIGHT, fill="y")
+        
+        self.history_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Create frame inside canvas for the graph
+        self.graph_frame = tk.Frame(
+            self.history_canvas,
+            bg="#1e1e1e"
+        )
+        self.history_canvas.create_window(
+            (0, 0),
+            window=self.graph_frame,
+            anchor="nw"
+        )
+        
+        # Bind canvas to frame size
+        self.graph_frame.bind(
+            "<Configure>",
+            lambda e: self.history_canvas.configure(
+                scrollregion=self.history_canvas.bbox("all")
+            )
+        )
+        
+        # Add export button
+        export_btn = ttk.Button(
+            parent,
+            text="Export Performance Data",
+            command=self.export_performance_data
+        )
+        export_btn.pack(pady=(0, 20))
+
+    def _update_performance_history(self, latency, loss, jitter):
+        """Update the performance history and redraw the graph"""
+        try:
+            # Add new data point
+            timestamp = datetime.now()
+            self.performance_history.append({
+                'timestamp': timestamp,
+                'latency': latency,
+                'loss': loss,
+                'jitter': jitter
+            })
+            
+            # Keep only the last max_history_points
+            if len(self.performance_history) > self.max_history_points:
+                self.performance_history = self.performance_history[-self.max_history_points:]
+            
+            # Redraw the graph
+            self._draw_performance_graph()
+            
+        except Exception as e:
+            self.add_log(f"Error updating performance history: {str(e)}", error=True)
+
+    def _draw_performance_graph(self):
+        """Draw the performance history graph"""
+        try:
+            # Clear previous graph
+            for widget in self.graph_frame.winfo_children():
+                widget.destroy()
+            
+            if not self.performance_history:
+                return
+            
+            # Calculate graph dimensions
+            width = 800
+            height = 400
+            padding = 50
+            
+            # Create graph canvas
+            graph_canvas = tk.Canvas(
+                self.graph_frame,
+                width=width,
+                height=height,
+                bg="#1e1e1e",
+                highlightthickness=0
+            )
+            graph_canvas.pack(pady=20)
+            
+            # Draw axes
+            graph_canvas.create_line(padding, height - padding, width - padding, height - padding, fill="#ffffff")  # X-axis
+            graph_canvas.create_line(padding, padding, padding, height - padding, fill="#ffffff")  # Y-axis
+            
+            # Find min and max latency values for scaling
+            latencies = [data['latency'] for data in self.performance_history]
+            min_latency = min(latencies)
+            max_latency = max(latencies)
+            
+            # Ensure we have a valid range for scaling
+            if min_latency == max_latency:
+                # If all values are the same, create a small range around the value
+                min_latency = max(0, min_latency - 10)
+                max_latency = min_latency + 20
+            
+            # Draw grid lines and labels
+            for i in range(0, 101, 20):
+                y = height - padding - (i * (height - 2 * padding) / 100)
+                graph_canvas.create_line(padding, y, width - padding, y, fill="#333333", dash=(2, 2))
+                # Calculate actual latency value for the label
+                latency_value = min_latency + (i / 100) * (max_latency - min_latency)
+                graph_canvas.create_text(padding - 10, y, text=f"{latency_value:.1f}ms", fill="#ffffff", anchor="e")
+            
+            # Plot data points
+            x_step = (width - 2 * padding) / max(1, len(self.performance_history) - 1)
+            points = []
+            
+            for i, data in enumerate(self.performance_history):
+                x = padding + (i * x_step)
+                # Scale the latency value to fit the graph
+                scaled_latency = ((data['latency'] - min_latency) / (max_latency - min_latency)) * (height - 2 * padding)
+                y = height - padding - scaled_latency
+                points.append((x, y))
+                
+                # Draw timestamp labels (every 10th point or at least 2 points)
+                if i % max(1, len(self.performance_history) // 10) == 0:
+                    time_str = data['timestamp'].strftime("%H:%M:%S")
+                    graph_canvas.create_text(x, height - padding + 20, text=time_str, fill="#ffffff", angle=45)
+            
+            # Draw lines between points
+            if len(points) > 1:
+                graph_canvas.create_line(points, fill="#00b4d8", width=2)
+            
+            # Add legend
+            legend_frame = tk.Frame(self.graph_frame, bg="#1e1e1e")
+            legend_frame.pack(pady=(0, 20))
+            
+            legend_label = tk.Label(
+                legend_frame,
+                text="Latency (ms) over time",
+                font=("Segoe UI", 10),
+                bg="#1e1e1e",
+                fg="#ffffff"
+            )
+            legend_label.pack(side=tk.LEFT, padx=10)
+            
+        except Exception as e:
+            self.add_log(f"Error drawing performance graph: {str(e)}", error=True)
+
+    def export_performance_data(self):
+        """Export performance data to CSV file"""
+        try:
+            if not self.performance_history:
+                messagebox.showinfo("No Data", "No performance data available to export.")
+                return
+            
+            # Get save location
+            file_path = filedialog.asksaveasfilename(
+                defaultextension=".csv",
+                filetypes=[("CSV files", "*.csv")],
+                title="Export Performance Data"
+            )
+            
+            if not file_path:
+                return
+            
+            # Write data to CSV
+            with open(file_path, 'w', newline='') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Timestamp', 'Latency (ms)', 'Packet Loss (%)', 'Jitter (ms)'])
+                for data in self.performance_history:
+                    writer.writerow([
+                        data['timestamp'].strftime("%Y-%m-%d %H:%M:%S"),
+                        data['latency'],
+                        data['loss'],
+                        data['jitter']
+                    ])
+            
+            self.add_log(f"Performance data exported to {file_path}")
+            messagebox.showinfo("Success", "Performance data exported successfully.")
+            
+        except Exception as e:
+            self.add_log(f"Error exporting performance data: {str(e)}", error=True)
+            messagebox.showerror("Error", f"Failed to export performance data: {str(e)}")
+
+    def _monitor_performance(self):
+        """Monitor network performance and update UI"""
+        import ping3
+        import socket
+        import time
+        from statistics import stdev
+        
+        # Common game servers to test against
+        TEST_SERVERS = [
+            "google.com",  # For general latency
+            "8.8.8.8",    # Google DNS
+            "1.1.1.1",    # Cloudflare DNS
+            "valve.net",  # Steam servers
+            "epicgames.com"  # Epic Games servers
+        ]
+        
+        while self.monitoring_active:
+            try:
+                # Test latency and packet loss
+                latencies = []
+                lost_packets = 0
+                total_packets = len(TEST_SERVERS)
+                
+                for server in TEST_SERVERS:
+                    try:
+                        # Set timeout to 2 seconds
+                        latency = ping3.ping(server, timeout=2)
+                        if latency is not None:
+                            latencies.append(latency * 1000)  # Convert to milliseconds
+                        else:
+                            lost_packets += 1
+                    except Exception:
+                        lost_packets += 1
+                
+                # Calculate metrics
+                if latencies:
+                    avg_latency = sum(latencies) / len(latencies)
+                    packet_loss = (lost_packets / total_packets) * 100
+                    
+                    # Calculate jitter (standard deviation of latency)
+                    if len(latencies) > 1:
+                        jitter = stdev(latencies)
+                    else:
+                        jitter = 0
+                    
+                    # Update UI with real values
+                    self.root.after(0, lambda: self.latency_var.set(f"{avg_latency:.1f} ms"))
+                    self.root.after(0, lambda: self.loss_var.set(f"{packet_loss:.1f} %"))
+                    self.root.after(0, lambda: self.jitter_var.set(f"{jitter:.1f} ms"))
+                    
+                    # Update impact and recommendations
+                    self._update_performance_impact(avg_latency, packet_loss, jitter)
+                    
+                    # Update performance history
+                    self._update_performance_history(avg_latency, packet_loss, jitter)
+                else:
+                    # If all packets were lost
+                    self.root.after(0, lambda: self.latency_var.set("-- ms"))
+                    self.root.after(0, lambda: self.loss_var.set("100 %"))
+                    self.root.after(0, lambda: self.jitter_var.set("-- ms"))
+                    self.root.after(0, lambda: self.impact_var.set("Network connection failed"))
+                    self.root.after(0, lambda: self.recommendations_var.set(
+                        "Check your internet connection\nTry using a wired connection if possible"
+                    ))
+                
+                # Sleep for 3 seconds before next update
+                time.sleep(3)
+                
+            except Exception as e:
+                self.add_log(f"Error in performance monitoring: {str(e)}", error=True)
+                time.sleep(3)
+
+    def start_performance_monitoring(self):
+        """Start or stop performance monitoring"""
+        if not self.monitoring_active:
+            self.monitoring_active = True
+            self.monitoring_thread = threading.Thread(target=self._monitor_performance)
+            self.monitoring_thread.daemon = True
+            self.monitoring_thread.start()
+            self.add_log("Started performance monitoring")
+        else:
+            self.monitoring_active = False
+            if self.monitoring_thread:
+                self.monitoring_thread.join(timeout=1)
+            self.add_log("Stopped performance monitoring")
+
+    def _update_performance_impact(self, latency, loss, jitter):
+        """Update performance impact and recommendations based on metrics"""
+        try:
+            # Determine impact level
+            if latency > 100 or loss > 1 or jitter > 15:
+                impact = "High impact - Network conditions may affect gaming performance"
+            elif latency > 50 or loss > 0.5 or jitter > 10:
+                impact = "Moderate impact - Some performance degradation possible"
+            else:
+                impact = "Low impact - Good network conditions for gaming"
+            
+            # Generate recommendations
+            recommendations = []
+            
+            if latency > 100:
+                recommendations.append("Consider using a lower DSCP value (e.g., 46) to prioritize gaming traffic")
+            if loss > 1:
+                recommendations.append("Check your network connection and consider using a wired connection")
+            if jitter > 15:
+                recommendations.append("Try using a DSCP value of 32 to reduce jitter")
+            
+            if not recommendations:
+                recommendations.append("Current DSCP settings are optimal for your network conditions")
+            
+            # Update UI
+            self.root.after(0, lambda: self.impact_var.set(impact))
+            self.root.after(0, lambda: self.recommendations_var.set("\n".join(recommendations)))
+            
+        except Exception as e:
+            self.add_log(f"Error updating performance impact: {str(e)}", error=True)
+
     def create_settings(self):
         """Create the settings tab content"""
         container = ttk.Frame(self.settings_tab)
@@ -1882,7 +2429,629 @@ class QoSManagerApp:
         y = (self.root.winfo_screenheight() // 2) - (height // 2)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
 
+    def _create_diagnostics_frame(self, parent):
+        """Create the advanced diagnostics frame"""
+        # Create notebook for different diagnostic sections
+        self.diagnostics_notebook = ttk.Notebook(parent)
+        self.diagnostics_notebook.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Network Path Analysis tab
+        path_frame = ttk.Frame(self.diagnostics_notebook)
+        self.diagnostics_notebook.add(path_frame, text="Network Path")
+        
+        # Server selection
+        server_frame = tk.Frame(path_frame, bg="#252525", padx=20, pady=20)
+        server_frame.pack(fill="x", pady=(0, 20))
+        
+        server_label = tk.Label(
+            server_frame,
+            text="Test Server:",
+            bg="#252525",
+            fg="#ffffff"
+        )
+        server_label.pack(side=tk.LEFT, padx=(0, 10))
+        
+        self.server_var = tk.StringVar(value="google.com")
+        server_entry = ttk.Entry(
+            server_frame,
+            textvariable=self.server_var,
+            width=30
+        )
+        server_entry.pack(side=tk.LEFT, padx=(0, 10))
+        
+        trace_btn = ttk.Button(
+            server_frame,
+            text="Trace Route",
+            command=self.trace_route
+        )
+        trace_btn.pack(side=tk.LEFT)
+        
+        # Path results with hop-by-hop analysis
+        self.path_text = tk.Text(
+            path_frame,
+            height=15,
+            bg="#1e1e1e",
+            fg="#ffffff",
+            font=("Consolas", 9),
+            wrap=tk.WORD
+        )
+        self.path_text.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # Network Interfaces tab
+        interface_frame = ttk.Frame(self.diagnostics_notebook)
+        self.diagnostics_notebook.add(interface_frame, text="Network Interfaces")
+        
+        # Interface details with statistics
+        self.interface_text = tk.Text(
+            interface_frame,
+            height=15,
+            bg="#1e1e1e",
+            fg="#ffffff",
+            font=("Consolas", 9),
+            wrap=tk.WORD
+        )
+        self.interface_text.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Bandwidth Testing tab
+        bandwidth_frame = ttk.Frame(self.diagnostics_notebook)
+        self.diagnostics_notebook.add(bandwidth_frame, text="Bandwidth Test")
+        
+        # Bandwidth test controls
+        bandwidth_controls = tk.Frame(bandwidth_frame, bg="#252525", padx=20, pady=20)
+        bandwidth_controls.pack(fill="x")
+        
+        self.bandwidth_status = tk.StringVar(value="Ready to test")
+        status_label = tk.Label(
+            bandwidth_controls,
+            textvariable=self.bandwidth_status,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10)
+        )
+        status_label.pack(side=tk.LEFT)
+        
+        test_btn = ttk.Button(
+            bandwidth_controls,
+            text="Start Bandwidth Test",
+            command=self.start_bandwidth_test
+        )
+        test_btn.pack(side=tk.RIGHT)
+        
+        # Bandwidth results
+        self.bandwidth_text = tk.Text(
+            bandwidth_frame,
+            height=10,
+            bg="#1e1e1e",
+            fg="#ffffff",
+            font=("Consolas", 9),
+            wrap=tk.WORD
+        )
+        self.bandwidth_text.pack(fill="both", expand=True, padx=20, pady=(0, 20))
+        
+        # Connection Quality tab
+        quality_frame = ttk.Frame(self.diagnostics_notebook)
+        self.diagnostics_notebook.add(quality_frame, text="Connection Quality")
+        
+        # Quality metrics
+        quality_metrics = tk.Frame(quality_frame, bg="#252525", padx=20, pady=20)
+        quality_metrics.pack(fill="x")
+        
+        # Bufferbloat test
+        bufferbloat_frame = tk.Frame(quality_metrics, bg="#252525")
+        bufferbloat_frame.pack(fill="x", pady=(0, 10))
+        
+        bufferbloat_label = tk.Label(
+            bufferbloat_frame,
+            text="Bufferbloat Test:",
+            bg="#252525",
+            fg="#ffffff"
+        )
+        bufferbloat_label.pack(side=tk.LEFT)
+        
+        self.bufferbloat_var = tk.StringVar(value="Not tested")
+        bufferbloat_value = tk.Label(
+            bufferbloat_frame,
+            textvariable=self.bufferbloat_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10, "bold")
+        )
+        bufferbloat_value.pack(side=tk.LEFT, padx=(10, 0))
+        
+        test_bufferbloat_btn = ttk.Button(
+            bufferbloat_frame,
+            text="Test Bufferbloat",
+            command=self.test_bufferbloat
+        )
+        test_bufferbloat_btn.pack(side=tk.RIGHT)
+        
+        # Connection stability
+        stability_frame = tk.Frame(quality_metrics, bg="#252525")
+        stability_frame.pack(fill="x", pady=(0, 10))
+        
+        stability_label = tk.Label(
+            stability_frame,
+            text="Connection Stability:",
+            bg="#252525",
+            fg="#ffffff"
+        )
+        stability_label.pack(side=tk.LEFT)
+        
+        self.stability_var = tk.StringVar(value="Not tested")
+        stability_value = tk.Label(
+            stability_frame,
+            textvariable=self.stability_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10, "bold")
+        )
+        stability_value.pack(side=tk.LEFT, padx=(10, 0))
+        
+        test_stability_btn = ttk.Button(
+            stability_frame,
+            text="Test Stability",
+            command=self.test_connection_stability
+        )
+        test_stability_btn.pack(side=tk.RIGHT)
+        
+        # Quality recommendations
+        self.quality_recommendations = tk.Text(
+            quality_frame,
+            height=8,
+            bg="#1e1e1e",
+            fg="#ffffff",
+            font=("Segoe UI", 9),
+            wrap=tk.WORD
+        )
+        self.quality_recommendations.pack(fill="both", expand=True, padx=20, pady=20)
+        
+        # Initial refresh
+        self.refresh_diagnostics()
+
+    def start_bandwidth_test(self):
+        """Start bandwidth testing"""
+        try:
+            self.bandwidth_status.set("Testing bandwidth...")
+            self.bandwidth_text.delete(1.0, tk.END)
+            self.bandwidth_text.insert(tk.END, "Starting bandwidth test...\n")
             
+            # Run bandwidth test in a separate thread
+            threading.Thread(target=self._bandwidth_test_thread).start()
+            
+        except Exception as e:
+            self.add_log(f"Error starting bandwidth test: {str(e)}", error=True)
+            self.bandwidth_status.set("Test failed")
+
+    def _bandwidth_test_thread(self):
+        """Thread function to perform bandwidth testing"""
+        try:
+            import speedtest
+            
+            # Initialize speedtest
+            st = speedtest.Speedtest()
+            
+            # Get best server
+            self.root.after(0, lambda: self.bandwidth_text.insert(tk.END, "Finding best server...\n"))
+            st.get_best_server()
+            
+            # Test download speed
+            self.root.after(0, lambda: self.bandwidth_text.insert(tk.END, "Testing download speed...\n"))
+            download_speed = st.download() / 1_000_000  # Convert to Mbps
+            
+            # Test upload speed
+            self.root.after(0, lambda: self.bandwidth_text.insert(tk.END, "Testing upload speed...\n"))
+            upload_speed = st.upload() / 1_000_000  # Convert to Mbps
+            
+            # Display results
+            self.root.after(0, lambda: self.bandwidth_text.insert(tk.END, 
+                f"\nResults:\n"
+                f"Download Speed: {download_speed:.2f} Mbps\n"
+                f"Upload Speed: {upload_speed:.2f} Mbps\n"
+                f"Ping: {st.results.ping:.2f} ms\n"
+                f"Server: {st.results.server['sponsor']} ({st.results.server['name']})\n"
+            ))
+            
+            self.root.after(0, lambda: self.bandwidth_status.set("Test complete"))
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.bandwidth_text.insert(tk.END, f"Error: {str(e)}\n"))
+            self.root.after(0, lambda: self.bandwidth_status.set("Test failed"))
+            self.add_log(f"Error in bandwidth test: {str(e)}", error=True)
+
+    def test_bufferbloat(self):
+        """Test for bufferbloat"""
+        try:
+            self.bufferbloat_var.set("Testing...")
+            
+            # Run bufferbloat test in a separate thread
+            threading.Thread(target=self._bufferbloat_test_thread).start()
+            
+        except Exception as e:
+            self.add_log(f"Error starting bufferbloat test: {str(e)}", error=True)
+            self.bufferbloat_var.set("Test failed")
+
+    def _bufferbloat_test_thread(self):
+        """Thread function to test for bufferbloat"""
+        try:
+            import subprocess
+            
+            # Use ping to test for bufferbloat
+            process = subprocess.Popen(
+                ["ping", "-n", "10", "8.8.8.8"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            latencies = []
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if "time=" in line:
+                    try:
+                        latency = float(line.split("time=")[1].split("ms")[0])
+                        latencies.append(latency)
+                    except:
+                        pass
+            
+            if latencies:
+                avg_latency = sum(latencies) / len(latencies)
+                max_latency = max(latencies)
+                bufferbloat = max_latency - avg_latency
+                
+                if bufferbloat > 100:
+                    result = "High bufferbloat detected"
+                elif bufferbloat > 50:
+                    result = "Moderate bufferbloat detected"
+                else:
+                    result = "Low bufferbloat"
+                
+                self.root.after(0, lambda: self.bufferbloat_var.set(f"{result} ({bufferbloat:.1f}ms)"))
+                
+                # Update recommendations
+                self._update_quality_recommendations()
+            else:
+                self.root.after(0, lambda: self.bufferbloat_var.set("Test failed"))
+                
+        except Exception as e:
+            self.root.after(0, lambda: self.bufferbloat_var.set("Test failed"))
+            self.add_log(f"Error in bufferbloat test: {str(e)}", error=True)
+
+    def test_connection_stability(self):
+        """Test connection stability"""
+        try:
+            self.stability_var.set("Testing...")
+            
+            # Run stability test in a separate thread
+            threading.Thread(target=self._stability_test_thread).start()
+            
+        except Exception as e:
+            self.add_log(f"Error starting stability test: {str(e)}", error=True)
+            self.stability_var.set("Test failed")
+
+    def _stability_test_thread(self):
+        """Thread function to test connection stability"""
+        try:
+            import subprocess
+            import statistics
+            
+            # Test connection stability using ping
+            process = subprocess.Popen(
+                ["ping", "-n", "20", "8.8.8.8"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            latencies = []
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if "time=" in line:
+                    try:
+                        latency = float(line.split("time=")[1].split("ms")[0])
+                        latencies.append(latency)
+                    except:
+                        pass
+            
+            if latencies:
+                avg_latency = sum(latencies) / len(latencies)
+                jitter = statistics.stdev(latencies)
+                
+                if jitter > 20:
+                    result = "Unstable connection"
+                elif jitter > 10:
+                    result = "Moderately stable"
+                else:
+                    result = "Stable connection"
+                
+                self.root.after(0, lambda: self.stability_var.set(
+                    f"{result} (Jitter: {jitter:.1f}ms)"
+                ))
+                
+                # Update recommendations
+                self._update_quality_recommendations()
+            else:
+                self.root.after(0, lambda: self.stability_var.set("Test failed"))
+                
+        except Exception as e:
+            self.root.after(0, lambda: self.stability_var.set("Test failed"))
+            self.add_log(f"Error in stability test: {str(e)}", error=True)
+
+    def _update_quality_recommendations(self):
+        """Update quality recommendations based on test results"""
+        try:
+            recommendations = []
+            
+            # Bufferbloat recommendations
+            bufferbloat = self.bufferbloat_var.get()
+            if "High bufferbloat" in bufferbloat:
+                recommendations.append("• Enable QoS on your router to reduce bufferbloat")
+                recommendations.append("• Consider using a gaming router with SQM (Smart Queue Management)")
+            elif "Moderate bufferbloat" in bufferbloat:
+                recommendations.append("• Monitor bufferbloat during gaming sessions")
+                recommendations.append("• Consider enabling QoS if issues persist")
+            
+            # Stability recommendations
+            stability = self.stability_var.get()
+            if "Unstable" in stability:
+                recommendations.append("• Check for network congestion or interference")
+                recommendations.append("• Consider using a wired connection instead of WiFi")
+                recommendations.append("• Update network drivers and firmware")
+            elif "Moderately stable" in stability:
+                recommendations.append("• Monitor connection stability during gaming")
+                recommendations.append("• Consider optimizing network settings")
+            
+            # Update recommendations text
+            self.quality_recommendations.delete(1.0, tk.END)
+            if recommendations:
+                self.quality_recommendations.insert(tk.END, "Recommendations:\n\n")
+                for rec in recommendations:
+                    self.quality_recommendations.insert(tk.END, f"{rec}\n")
+            else:
+                self.quality_recommendations.insert(tk.END, "No specific recommendations at this time.")
+            
+        except Exception as e:
+            self.add_log(f"Error updating quality recommendations: {str(e)}", error=True)
+
+    def _create_optimization_frame(self, parent):
+        """Create the performance optimization frame"""
+        # Auto-optimization section
+        auto_frame = tk.Frame(parent, bg="#252525", padx=20, pady=20)
+        auto_frame.pack(fill="x", pady=(0, 20))
+        
+        auto_title = tk.Label(
+            auto_frame,
+            text="Automatic Optimization",
+            font=("Segoe UI", 12, "bold"),
+            bg="#252525",
+            fg="#ffffff"
+        )
+        auto_title.pack(anchor="w", pady=(0, 10))
+        
+        auto_desc = tk.Label(
+            auto_frame,
+            text="Automatically adjust DSCP values based on network conditions",
+            bg="#252525",
+            fg="#aaaaaa",
+            wraplength=600,
+            justify=tk.LEFT
+        )
+        auto_desc.pack(anchor="w", pady=(0, 10))
+        
+        # Optimization controls
+        controls_frame = tk.Frame(auto_frame, bg="#252525")
+        controls_frame.pack(fill="x", pady=(0, 10))
+        
+        self.auto_optimize_var = tk.BooleanVar(value=False)
+        auto_check = ttk.Checkbutton(
+            controls_frame,
+            text="Enable Auto-Optimization",
+            variable=self.auto_optimize_var,
+            command=self.toggle_auto_optimization
+        )
+        auto_check.pack(side=tk.LEFT, padx=(0, 10))
+        
+        # Optimization status
+        self.optimization_status_var = tk.StringVar(value="Auto-optimization is disabled")
+        status_label = tk.Label(
+            controls_frame,
+            textvariable=self.optimization_status_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 9)
+        )
+        status_label.pack(side=tk.LEFT)
+        
+        # Optimization recommendations
+        rec_frame = tk.Frame(parent, bg="#252525", padx=20, pady=20)
+        rec_frame.pack(fill="x")
+        
+        rec_title = tk.Label(
+            rec_frame,
+            text="Optimization Recommendations",
+            font=("Segoe UI", 12, "bold"),
+            bg="#252525",
+            fg="#ffffff"
+        )
+        rec_title.pack(anchor="w", pady=(0, 10))
+        
+        self.optimization_rec_var = tk.StringVar(value="No recommendations available")
+        rec_label = tk.Label(
+            rec_frame,
+            textvariable=self.optimization_rec_var,
+            bg="#252525",
+            fg="#00b4d8",
+            font=("Segoe UI", 10),
+            wraplength=600,
+            justify=tk.LEFT
+        )
+        rec_label.pack(anchor="w")
+
+    def trace_route(self):
+        """Perform a traceroute to the specified server"""
+        try:
+            server = self.server_var.get().strip()
+            if not server:
+                messagebox.showerror("Error", "Please enter a server address")
+                return
+            
+            self.path_text.delete(1.0, tk.END)
+            self.path_text.insert(tk.END, f"Tracing route to {server}...\n")
+            
+            # Run traceroute in a separate thread
+            threading.Thread(target=self._trace_route_thread, args=(server,)).start()
+            
+        except Exception as e:
+            self.add_log(f"Error starting traceroute: {str(e)}", error=True)
+
+    def _trace_route_thread(self, server):
+        """Thread function to perform traceroute"""
+        try:
+            import subprocess
+            
+            # Use tracert command for Windows
+            process = subprocess.Popen(
+                ["tracert", server],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            while True:
+                line = process.stdout.readline()
+                if not line and process.poll() is not None:
+                    break
+                if line:
+                    self.root.after(0, lambda l=line: self.path_text.insert(tk.END, l))
+            
+            self.root.after(0, lambda: self.path_text.insert(tk.END, "\nTrace complete.\n"))
+            
+        except Exception as e:
+            self.root.after(0, lambda: self.path_text.insert(tk.END, f"Error: {str(e)}\n"))
+            self.add_log(f"Error in traceroute: {str(e)}", error=True)
+
+    def refresh_diagnostics(self):
+        """Refresh network interface information"""
+        try:
+            import subprocess
+            import re
+            
+            self.interface_text.delete(1.0, tk.END)
+            
+            # Get network interface information
+            process = subprocess.Popen(
+                ["ipconfig", "/all"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True
+            )
+            
+            output, _ = process.communicate()
+            
+            # Parse and display relevant information
+            self.interface_text.insert(tk.END, "Network Interfaces:\n\n")
+            
+            # Find all network adapters
+            adapters = re.split(r'\n(?=\w)', output)
+            for adapter in adapters:
+                if "Ethernet" in adapter or "Wi-Fi" in adapter:
+                    self.interface_text.insert(tk.END, adapter + "\n\n")
+            
+        except Exception as e:
+            self.interface_text.insert(tk.END, f"Error: {str(e)}\n")
+            self.add_log(f"Error refreshing diagnostics: {str(e)}", error=True)
+
+    def toggle_auto_optimization(self):
+        """Toggle automatic optimization"""
+        if self.auto_optimize_var.get():
+            self.optimization_active = True
+            self.optimization_thread = threading.Thread(target=self._optimization_thread)
+            self.optimization_thread.daemon = True
+            self.optimization_thread.start()
+            self.optimization_status_var.set("Auto-optimization is active")
+            self.add_log("Started automatic optimization")
+        else:
+            self.optimization_active = False
+            if self.optimization_thread:
+                self.optimization_thread.join(timeout=1)
+            self.optimization_status_var.set("Auto-optimization is disabled")
+            self.add_log("Stopped automatic optimization")
+
+    def _optimization_thread(self):
+        """Thread function for automatic optimization"""
+        while self.optimization_active:
+            try:
+                # Get current performance metrics
+                if not self.performance_history:
+                    time.sleep(3)
+                    continue
+                
+                latest = self.performance_history[-1]
+                latency = latest['latency']
+                loss = latest['loss']
+                jitter = latest['jitter']
+                
+                # Generate optimization recommendations
+                recommendations = []
+                
+                if latency > 100:
+                    recommendations.append("Consider lowering DSCP values to prioritize gaming traffic")
+                if loss > 1:
+                    recommendations.append("Check network connection and consider using QoS policies")
+                if jitter > 15:
+                    recommendations.append("Try using a lower DSCP value to reduce jitter")
+                
+                if not recommendations:
+                    recommendations.append("Current settings are optimal")
+                
+                # Update UI
+                self.root.after(0, lambda r=recommendations: self.optimization_rec_var.set("\n".join(r)))
+                
+                # Sleep for 5 seconds before next check
+                time.sleep(5)
+                
+            except Exception as e:
+                self.add_log(f"Error in optimization thread: {str(e)}", error=True)
+                time.sleep(5)
+
+    def _create_tooltip(self, widget, text):
+        """Create a tooltip for a widget"""
+        def show_tooltip(event):
+            x, y, _, _ = widget.bbox("insert")
+            x += widget.winfo_rootx() + 25
+            y += widget.winfo_rooty() + 20
+            
+            # Create tooltip window
+            tooltip = tk.Toplevel(widget)
+            tooltip.wm_overrideredirect(True)
+            tooltip.wm_geometry(f"+{x}+{y}")
+            
+            # Create tooltip label
+            label = tk.Label(
+                tooltip,
+                text=text,
+                justify=tk.LEFT,
+                background="#ffffe0",
+                foreground="#000000",
+                relief=tk.SOLID,
+                borderwidth=1,
+                font=("Segoe UI", 9),
+                padx=5,
+                pady=2
+            )
+            label.pack()
+            
+            # Remove tooltip when mouse leaves
+            def hide_tooltip(event):
+                tooltip.destroy()
+            
+            widget.bind("<Leave>", hide_tooltip)
+        
+        widget.bind("<Enter>", show_tooltip)
+
 # Main function to run the application
 def main():
     # Enable high DPI awareness for better display on high-resolution screens
@@ -1918,4 +3087,4 @@ def main():
     root.mainloop()
 
 if __name__ == "__main__":
-    main()    
+    main()
