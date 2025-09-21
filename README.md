@@ -116,26 +116,6 @@ python QoS.py
    - Verify DSCP values
    - Monitor for network congestion
 
-### Error Logs
-- View error logs in the Settings tab
-- Check the "Errors.txt" file in the application directory
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-- Windows QoS Policy Management
-- Python Tkinter for GUI
-- Speedtest-cli for bandwidth testing
-- Ping3 for network latency testing
-
 ## Support
 
 For support, please contact me on:
